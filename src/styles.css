@@ -1,0 +1,458 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e5eefc;
+  background: #020617;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(20, 184, 166, 0.15), transparent 22%),
+    linear-gradient(180deg, #08111f 0%, #020617 100%);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 2.35rem;
+}
+
+h2 {
+  font-size: 1.45rem;
+}
+
+h3 {
+  font-size: 1rem;
+}
+
+.muted {
+  color: #94a3b8;
+}
+
+.large-copy {
+  font-size: 1.05rem;
+  max-width: 60ch;
+}
+
+.tiny-copy {
+  font-size: 0.82rem;
+}
+
+.inline-code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  color: #e2e8f0;
+}
+
+.eyebrow,
+.section-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.74rem;
+  color: #93c5fd;
+  margin-bottom: 8px;
+}
+
+.login-shell,
+.app-shell {
+  min-height: 100vh;
+}
+
+.login-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 480px);
+}
+
+.login-hero,
+.login-panel,
+.sidebar,
+.main-content {
+  padding: 32px;
+}
+
+.login-hero,
+.sidebar {
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(18px);
+}
+
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.login-panel,
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.feature-card,
+.panel,
+.summary-card,
+.clock-panel,
+.login-panel,
+.user-row,
+.credential-card {
+  background: rgba(15, 23, 42, 0.74);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  box-shadow: 0 16px 45px rgba(2, 6, 23, 0.35);
+}
+
+.feature-card,
+.summary-card,
+.clock-panel,
+.credential-card {
+  padding: 18px;
+}
+
+.login-panel {
+  margin: 24px;
+  align-self: center;
+}
+
+.app-shell.final-shell {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.main-content {
+  padding-bottom: 40px;
+}
+
+.button-row,
+.button-stack {
+  display: flex;
+  gap: 10px;
+}
+
+.button-row.wrap,
+.button-stack {
+  flex-wrap: wrap;
+}
+
+.button-stack {
+  flex-direction: column;
+}
+
+.ghost-button,
+.primary-button,
+.secondary-button,
+.danger-button {
+  border-radius: 12px;
+  padding: 12px 14px;
+  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+}
+
+.ghost-button {
+  background: rgba(30, 41, 59, 0.96);
+  color: #dbeafe;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: white;
+}
+
+.secondary-button {
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.danger-button {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.26);
+}
+
+.ghost-button:hover,
+.primary-button:hover,
+.secondary-button:hover,
+.danger-button:hover {
+  transform: translateY(-1px);
+}
+
+.full-width {
+  width: 100%;
+}
+
+.summary-grid,
+.panel-grid,
+.form-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-card span {
+  color: #93c5fd;
+  font-size: 0.92rem;
+}
+
+.summary-card strong {
+  font-size: 2rem;
+}
+
+.panel-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.forms-stack,
+.list-stack,
+.split-column,
+.demo-credentials {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-card,
+.lesson-card,
+.reminder-card,
+.install-note {
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.55);
+  padding: 16px;
+}
+
+.form-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+input,
+select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.9);
+  color: #f8fafc;
+  padding: 12px 14px;
+}
+
+input::placeholder {
+  color: #64748b;
+}
+
+.credential-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user-table {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-row {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) 120px;
+  gap: 10px;
+}
+
+.lesson-card,
+.reminder-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.reminder-card {
+  flex-direction: column;
+}
+
+.lesson-card-focus,
+.reminder-card-focus {
+  border-color: rgba(96, 165, 250, 0.9);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+}
+
+.reminder-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.status-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
+}
+
+.badge-danger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+}
+
+.badge-neutral {
+  background: rgba(148, 163, 184, 0.14);
+  color: #dbeafe;
+}
+
+.empty-state {
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.18);
+  color: #94a3b8;
+}
+
+.error-text {
+  color: #fda4af;
+}
+
+.feature-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  color: #dbeafe;
+}
+
+@media (max-width: 1280px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel-grid,
+  .login-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .login-panel {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-shell.final-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  }
+
+  .user-row,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .main-content,
+  .sidebar,
+  .login-panel,
+  .login-hero {
+    padding: 20px;
+  }
+
+  .summary-grid,
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row,
+  .lesson-card {
+    flex-direction: column;
+  }
+
+  .status-stack {
+    justify-content: flex-start;
+  }
+}
