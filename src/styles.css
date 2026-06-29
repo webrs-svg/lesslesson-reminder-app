@@ -470,6 +470,30 @@ input::placeholder {
   flex-wrap: wrap;
 }
 
+.calendar-toolbar-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.timezone-picker {
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-note {
+  min-height: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.55);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+}
+
 .calendar-grid {
   display: grid;
   grid-template-columns: 72px repeat(7, minmax(0, 1fr));
@@ -581,6 +605,14 @@ input::placeholder {
   .form-grid {
     grid-template-columns: 1fr;
   }
+
+  .calendar-toolbar-actions {
+    width: 100%;
+  }
+
+  .timezone-picker {
+    width: 100%;
+  }
 }
 
 @media (max-width: 720px) {
@@ -603,5 +635,9 @@ input::placeholder {
 
   .status-stack {
     justify-content: flex-start;
+  }
+
+  .calendar-grid {
+    overflow: auto;
   }
 }

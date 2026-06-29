@@ -604,7 +604,7 @@ function App() {
 
     const payload = {
       ...draft,
-      starts_at: new Date(draft.starts_at).toISOString(),
+      starts_at: /[zZ]$|[+-]\d{2}:\d{2}$/.test(draft.starts_at) ? draft.starts_at : new Date(draft.starts_at).toISOString(),
     }
 
     const { error } = await supabase.from('lessons').insert(payload)
@@ -768,30 +768,30 @@ function App() {
       <div className="login-shell">
         <section className="login-hero">
           <div>
-            <p className="eyebrow">Live stack</p>
-            <h1>Lesson Reminder Manager</h1>
+            <p className="eyebrow">Welcome</p>
+            <h1>Keep every class organized</h1>
             <p className="muted large-copy">
-              This version is wired for `Vercel + Supabase`, with real hosted data, email/password auth, admin-managed users,
-              and installable PWA support.
+              This app helps schools, teachers, and students see upcoming classes, stay on time, and keep a clear record of what
+              happened in each lesson.
             </p>
           </div>
 
           <div className="feature-grid">
             <article className="feature-card">
-              <h3>Supabase auth</h3>
-              <p className="muted">Users sign in with hosted email/password accounts instead of browser-only demo data.</p>
+              <h3>See what’s next</h3>
+              <p className="muted">Check upcoming classes and recent lessons in one place.</p>
             </article>
             <article className="feature-card">
-              <h3>Hosted database</h3>
-              <p className="muted">Profiles and lessons are stored centrally so every device sees the same data.</p>
+              <h3>Stay on time</h3>
+              <p className="muted">Get reminders before class so nobody misses an important lesson.</p>
             </article>
             <article className="feature-card">
-              <h3>Admin creation flow</h3>
-              <p className="muted">The admin dashboard can create, update, and delete users through a protected Vercel API route.</p>
+              <h3>Keep everyone aligned</h3>
+              <p className="muted">Students, teachers, and admins can each see the information that matters to them.</p>
             </article>
             <article className="feature-card">
-              <h3>PWA delivery</h3>
-              <p className="muted">Chrome can install the app and the service worker can display reminder notifications.</p>
+              <h3>Track each class</h3>
+              <p className="muted">Mark whether a class happened and keep a simple history of lessons.</p>
             </article>
           </div>
         </section>
@@ -800,7 +800,7 @@ function App() {
           <div className="panel-header">
             <div>
               <p className="section-label">Login</p>
-              <h2>Sign in</h2>
+              <h2>Sign in to your account</h2>
             </div>
           </div>
 
@@ -825,10 +825,8 @@ function App() {
           </form>
 
           <div className="install-note">
-            <h3>After deployment</h3>
-            <p className="muted">
-              Seed the demo users once, then sign in as the admin and manage teachers, students, and lessons directly from the app.
-            </p>
+            <h3>Getting started</h3>
+            <p className="muted">Use the email and password shared with you by your school or admin.</p>
           </div>
         </section>
       </div>
