@@ -60,21 +60,40 @@ const defaultAccountForm = (profile: Profile | null): AccountFormState => ({
   confirm_password: '',
 })
 
-const formatDateTime = (value: string) =>
-  new Intl.DateTimeFormat('en', {
+const localeByLanguage: Record<Language, string> = {
+  en: 'en',
+  pt: 'pt-BR',
+  es: 'es',
+}
+
+const appTimeZones = [
+  { value: 'America/Sao_Paulo', label: 'Brasília (GMT-3)' },
+  { value: 'UTC', label: 'UTC' },
+  { value: 'America/New_York', label: 'New York' },
+  { value: 'Europe/London', label: 'London' },
+  { value: 'Europe/Paris', label: 'Paris' },
+  { value: 'Asia/Dubai', label: 'Dubai' },
+  { value: 'Asia/Tokyo', label: 'Tokyo' },
+  { value: 'Australia/Sydney', label: 'Sydney' },
+]
+
+const formatDateTime = (value: string, language: Language, timeZone: string) =>
+  new Intl.DateTimeFormat(localeByLanguage[language], {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone,
   }).format(new Date(value))
 
-const formatShortDate = (value: string) =>
-  new Intl.DateTimeFormat('en', {
+const formatShortDate = (value: string, language: Language, timeZone: string) =>
+  new Intl.DateTimeFormat(localeByLanguage[language], {
     day: 'numeric',
     month: 'short',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone,
   }).format(new Date(value))
 
 const sortByDateAsc = (a: Lesson, b: Lesson) =>
@@ -145,6 +164,7 @@ const StatCard = ({ label, value }: { label: string; value: string | number }) =
 
 function App() {
   const [language, setLanguage] = useState<Language>(() => getStoredLanguage() ?? getDeviceLanguage())
+  const [appTimeZone, setAppTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [appError, setAppError] = useState('')
@@ -741,10 +761,36 @@ function App() {
     return result.data
   }
 
+  const callLessonsApi = async <T,>(action: 'create_group' | 'update_group', payload: unknown): Promise<T> => {
+    if (!session?.access_token) {
+      throw new Error('You are not signed in.')
+    }
+
+    const response = await fetch('/api/lessons/manage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action, payload }),
+    })
+
+    const result = (await response.json()) as { data?: T; error?: string }
+    if (!response.ok) {
+      throw new Error(result.error ?? 'Request failed.')
+    }
+
+    if (!result.data) {
+      throw new Error('Unexpected API response.')
+    }
+
+    return result.data
+  }
+
   const createLessonFromDraft = async (draft: {
     subject: string
     class_name: string
-    student_id: string
+    student_ids: string[]
     teacher_id: string
     starts_at: string
     duration_minutes: number
@@ -756,13 +802,38 @@ function App() {
       starts_at: /[zZ]$|[+-]\d{2}:\d{2}$/.test(draft.starts_at) ? draft.starts_at : new Date(draft.starts_at).toISOString(),
     }
 
-    const { error } = await supabase.from('lessons').insert(payload)
-    if (error) {
-      setAppError(error.message)
+    try {
+      await callLessonsApi('create_group', payload)
+      await refreshLessons()
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not create the class.')
       throw error
     }
+  }
 
-    await refreshLessons()
+  const updateLessonGroup = async (draft: {
+    lesson_ids: string[]
+    student_ids: string[]
+    subject: string
+    class_name: string
+    teacher_id: string
+    starts_at: string
+    duration_minutes: number
+  }) => {
+    setAppError('')
+
+    const payload = {
+      ...draft,
+      starts_at: /[zZ]$|[+-]\d{2}:\d{2}$/.test(draft.starts_at) ? draft.starts_at : new Date(draft.starts_at).toISOString(),
+    }
+
+    try {
+      await callLessonsApi('update_group', payload)
+      await refreshLessons()
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not update the class.')
+      throw error
+    }
   }
 
   const handleCreateUser = async (event: FormEvent) => {
@@ -795,7 +866,7 @@ function App() {
           await createLessonFromDraft({
             subject: `${createdProfile.full_name} class`,
             class_name: createdProfile.class_name ?? '',
-            student_id: createdProfile.id,
+            student_ids: [createdProfile.id],
             teacher_id: teacherId,
             starts_at: userForm.first_class_at,
             duration_minutes: 60,
@@ -1078,6 +1149,9 @@ function App() {
   const lessonCardClass = (lessonId: string) =>
     focusedLessonId === lessonId ? 'lesson-card lesson-card-focus' : 'lesson-card'
 
+  const formatDateTimeLabel = (value: string) => formatDateTime(value, language, appTimeZone)
+  const formatShortDateLabel = (value: string) => formatShortDate(value, language, appTimeZone)
+
   return (
     <div className="app-shell final-shell">
       <aside className="sidebar">
@@ -1104,7 +1178,16 @@ function App() {
 
         <div className="clock-panel">
           <p className="section-label">Live time</p>
-          <h2>{formatDateTime(now.toISOString())}</h2>
+          <div className="feature-status">
+            <h2>{formatDateTimeLabel(now.toISOString())}</h2>
+            <select value={appTimeZone} onChange={(event) => setAppTimeZone(event.target.value)}>
+              {appTimeZones.map((zone) => (
+                <option key={zone.value} value={zone.value}>
+                  {zone.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <p className="muted">Reminder cards appear automatically when the lesson enters the 4-hour window or starts.</p>
         </div>
 
@@ -1322,7 +1405,12 @@ function App() {
                   profilesById={profilesById}
                   students={students}
                   teachers={teachers}
+                  timeZone={appTimeZone}
+                  role="admin"
+                  allowCreateUsers
+                  allowTeacherChange
                   onCreateLesson={createLessonFromDraft}
+                  onUpdateLessonGroup={updateLessonGroup}
                   onCreateStudentLogin={createStudentLoginFromCalendar}
                   onCreateTeacherLogin={createTeacherLoginFromCalendar}
                 />
@@ -1336,7 +1424,7 @@ function App() {
                         <p className="muted">
                           {profilesById[lesson.student_id]?.full_name} with {profilesById[lesson.teacher_id]?.full_name}
                         </p>
-                        <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                        <p className="muted">{formatShortDateLabel(lesson.starts_at)}</p>
                       </div>
                       <div className="status-stack">
                         <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
@@ -1390,7 +1478,7 @@ function App() {
                           <div key={lesson.id} className={lessonCardClass(lesson.id)}>
                             <div>
                               <h3>{lesson.subject}</h3>
-                              <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                              <p className="muted">{formatShortDateLabel(lesson.starts_at)}</p>
                               <p className="muted">Teacher: {profilesById[lesson.teacher_id]?.full_name}</p>
                             </div>
                             <span className={badgeClass('confirmed')}>Confirmed</span>
@@ -1407,7 +1495,7 @@ function App() {
                           <div key={lesson.id} className={lessonCardClass(lesson.id)}>
                             <div>
                               <h3>{lesson.subject}</h3>
-                              <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                              <p className="muted">{formatShortDateLabel(lesson.starts_at)}</p>
                               <p className="muted">Teacher: {profilesById[lesson.teacher_id]?.full_name}</p>
                             </div>
                             <span className={badgeClass('cancel')}>Cancelled</span>
@@ -1425,7 +1513,7 @@ function App() {
                         <div>
                           <h3>{lesson.subject}</h3>
                           <p className="muted">
-                            {profilesById[lesson.student_id]?.full_name} · {formatShortDate(lesson.starts_at)}
+                            {profilesById[lesson.student_id]?.full_name} · {formatShortDateLabel(lesson.starts_at)}
                           </p>
                         </div>
                         <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
@@ -1457,7 +1545,7 @@ function App() {
                       <div key={lesson.id} className={`reminder-card ${focusedLessonId === lesson.id ? 'reminder-card-focus' : ''}`}>
                         <p className="reminder-title">{lesson.subject}</p>
                         <p className="muted">
-                          Starts in {minutesUntil(now, lesson.starts_at)} minutes on {formatShortDate(lesson.starts_at)}
+                          Starts in {minutesUntil(now, lesson.starts_at)} minutes on {formatShortDateLabel(lesson.starts_at)}
                         </p>
                         <div className="button-row wrap">
                           <button className="primary-button" onClick={() => void updateLesson(lesson.id, { student_attendance: 'attend' })}>
@@ -1513,7 +1601,7 @@ function App() {
                         <div>
                           <h3>{lesson.subject}</h3>
                           <p className="muted">
-                            {formatShortDate(lesson.starts_at)} with {profilesById[lesson.teacher_id]?.full_name}
+                            {formatShortDateLabel(lesson.starts_at)} with {profilesById[lesson.teacher_id]?.full_name}
                           </p>
                         </div>
                         <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
@@ -1530,7 +1618,7 @@ function App() {
                         <div>
                           <h3>{lesson.subject}</h3>
                           <p className="muted">
-                            {formatShortDate(lesson.starts_at)} with {profilesById[lesson.teacher_id]?.full_name}
+                            {formatShortDateLabel(lesson.starts_at)} with {profilesById[lesson.teacher_id]?.full_name}
                           </p>
                         </div>
                         <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
@@ -1605,7 +1693,7 @@ function App() {
                       <div key={lesson.id} className={`reminder-card ${focusedLessonId === lesson.id ? 'reminder-card-focus' : ''}`}>
                         <p className="reminder-title">{lesson.subject}</p>
                         <p className="muted">
-                          {profilesById[lesson.student_id]?.full_name} · {formatShortDate(lesson.starts_at)}
+                          {profilesById[lesson.student_id]?.full_name} · {formatShortDateLabel(lesson.starts_at)}
                         </p>
                         <p className="muted">
                           Student response: {lesson.student_attendance === null ? 'Awaiting confirmation' : lesson.student_attendance}
@@ -1648,6 +1736,31 @@ function App() {
               <div className="panel-header">
                 <div>
                   <p className="section-label">Teacher</p>
+                  <h2>Class calendar</h2>
+                </div>
+              </div>
+
+              <AdminCalendar
+                lessons={lessons}
+                profilesById={profilesById}
+                students={students}
+                teachers={teachers}
+                timeZone={appTimeZone}
+                role="teacher"
+                currentTeacherId={profile.id}
+                allowCreateUsers={false}
+                allowTeacherChange={false}
+                onCreateLesson={createLessonFromDraft}
+                onUpdateLessonGroup={updateLessonGroup}
+                onCreateStudentLogin={createStudentLoginFromCalendar}
+                onCreateTeacherLogin={createTeacherLoginFromCalendar}
+              />
+            </article>
+
+            <article className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Teacher</p>
                   <h2>Teaching schedule</h2>
                 </div>
               </div>
@@ -1661,7 +1774,7 @@ function App() {
                         <div>
                           <h3>{lesson.subject}</h3>
                           <p className="muted">
-                            {profilesById[lesson.student_id]?.full_name} · {formatShortDate(lesson.starts_at)}
+                            {profilesById[lesson.student_id]?.full_name} · {formatShortDateLabel(lesson.starts_at)}
                           </p>
                         </div>
                         <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
@@ -1679,7 +1792,7 @@ function App() {
                         <div>
                           <h3>{lesson.subject}</h3>
                           <p className="muted">
-                            {profilesById[lesson.student_id]?.full_name} · {formatShortDate(lesson.starts_at)}
+                            {profilesById[lesson.student_id]?.full_name} · {formatShortDateLabel(lesson.starts_at)}
                           </p>
                         </div>
                         <span

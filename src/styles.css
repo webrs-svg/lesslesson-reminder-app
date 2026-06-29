@@ -565,8 +565,8 @@ input::placeholder {
   flex-direction: column;
   gap: 2px;
   z-index: 2;
-  pointer-events: none;
   position: relative;
+  text-align: left;
 }
 
 .calendar-event-success {
@@ -590,6 +590,19 @@ input::placeholder {
   gap: 10px;
   border-top: 1px solid rgba(148, 163, 184, 0.12);
   padding-top: 12px;
+}
+
+.selection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.selection-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.55);
 }
 
 @media (max-width: 1280px) {
@@ -619,6 +632,10 @@ input::placeholder {
 
   .user-row,
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .selection-grid {
     grid-template-columns: 1fr;
   }
 
