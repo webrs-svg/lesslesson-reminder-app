@@ -119,8 +119,21 @@ const deleteUser = async (supabaseAdmin, payload) => {
     throw new Error(lessonError.message)
   }
 
-  if ((count ?? 0) > 0) {
+  const linkedLessonCount = count ?? 0
+
+  if (linkedLessonCount > 0 && !payload.force) {
     throw new Error('You cannot delete a user who is linked to lessons.')
+  }
+
+  if (linkedLessonCount > 0 && payload.force) {
+    const { error: deleteLessonsError } = await supabaseAdmin
+      .from('lessons')
+      .delete()
+      .or(`student_id.eq.${payload.id},teacher_id.eq.${payload.id}`)
+
+    if (deleteLessonsError) {
+      throw new Error(deleteLessonsError.message)
+    }
   }
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(payload.id)

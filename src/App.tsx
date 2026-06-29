@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
+import AdminCalendar from './components/AdminCalendar'
 import {
   BrowserPermission,
   InstallPromptEvent,
@@ -161,6 +162,7 @@ function App() {
   const [now, setNow] = useState(new Date())
   const [pendingLink, setPendingLink] = useState<PendingLink>({ lessonId: null, intent: null })
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
+  const [adminLessonView, setAdminLessonView] = useState<'calendar' | 'form'>('calendar')
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 30000)
@@ -598,25 +600,64 @@ function App() {
     await refreshLessons()
   }
 
-  const handleCreateUser = async (event: FormEvent) => {
-    event.preventDefault()
-    setAppError('')
+  const callAdminUsersApi = async <T,>(action: 'create' | 'update' | 'delete', payload: unknown): Promise<T> => {
+    if (!session?.access_token) {
+      throw new Error('You are not signed in.')
+    }
 
     const response = await fetch('/api/admin/users', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token ?? ''}`,
+        Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({
-        action: 'create',
-        payload: userForm,
-      }),
+      body: JSON.stringify({ action, payload }),
     })
 
-    const result = (await response.json()) as { error?: string }
+    const result = (await response.json()) as { data?: T; error?: string }
     if (!response.ok) {
-      setAppError(result.error ?? 'Could not create the user.')
+      throw new Error(result.error ?? 'Request failed.')
+    }
+
+    if (!result.data) {
+      throw new Error('Unexpected API response.')
+    }
+
+    return result.data
+  }
+
+  const createLessonFromDraft = async (draft: {
+    subject: string
+    class_name: string
+    student_id: string
+    teacher_id: string
+    starts_at: string
+    duration_minutes: number
+  }) => {
+    setAppError('')
+
+    const payload = {
+      ...draft,
+      starts_at: new Date(draft.starts_at).toISOString(),
+    }
+
+    const { error } = await supabase.from('lessons').insert(payload)
+    if (error) {
+      setAppError(error.message)
+      throw error
+    }
+
+    await refreshLessons()
+  }
+
+  const handleCreateUser = async (event: FormEvent) => {
+    event.preventDefault()
+    setAppError('')
+
+    try {
+      await callAdminUsersApi('create', userForm)
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not create the user.')
       return
     }
 
@@ -625,24 +666,11 @@ function App() {
   }
 
   const handleSaveUser = async (updatedUser: Profile & { password?: string }) => {
-    if (!session?.access_token) return
-
     setSavingUserId(updatedUser.id)
-    const response = await fetch('/api/admin/users', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        action: 'update',
-        payload: updatedUser,
-      }),
-    })
-
-    const result = (await response.json()) as { error?: string }
-    if (!response.ok) {
-      setAppError(result.error ?? 'Could not update the user.')
+    try {
+      await callAdminUsersApi('update', updatedUser)
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not update the user.')
       setSavingUserId(null)
       return
     }
@@ -652,23 +680,30 @@ function App() {
   }
 
   const handleDeleteUser = async (userId: string) => {
-    if (!session?.access_token) return
-    const response = await fetch('/api/admin/users', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        action: 'delete',
-        payload: { id: userId },
-      }),
-    })
+    setAppError('')
+    const confirmed = window.confirm('Delete this user? This cannot be undone.')
+    if (!confirmed) return
 
-    const result = (await response.json()) as { error?: string }
-    if (!response.ok) {
-      setAppError(result.error ?? 'Could not delete the user.')
-      return
+    try {
+      await callAdminUsersApi('delete', { id: userId })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete the user.'
+      if (message.includes('linked to lessons')) {
+        const force = window.confirm('This user has lessons. Delete the user AND all linked lessons?')
+        if (!force) {
+          setAppError(message)
+          return
+        }
+        try {
+          await callAdminUsersApi('delete', { id: userId, force: true })
+        } catch (forceError) {
+          setAppError(forceError instanceof Error ? forceError.message : 'Could not delete the user.')
+          return
+        }
+      } else {
+        setAppError(message)
+        return
+      }
     }
 
     await refreshProfiles()
@@ -677,16 +712,9 @@ function App() {
 
   const handleCreateLesson = async (event: FormEvent) => {
     event.preventDefault()
-    setAppError('')
-
-    const payload = {
-      ...lessonForm,
-      starts_at: new Date(lessonForm.starts_at).toISOString(),
-    }
-
-    const { error } = await supabase.from('lessons').insert(payload)
-    if (error) {
-      setAppError(error.message)
+    try {
+      await createLessonFromDraft(lessonForm)
+    } catch {
       return
     }
 
@@ -696,7 +724,54 @@ function App() {
       teacher_id: current.teacher_id,
       class_name: profilesById[current.student_id]?.class_name ?? '',
     }))
-    await refreshLessons()
+  }
+
+  const createStudentLoginFromCalendar = async (draft: {
+    full_name: string
+    email: string
+    password: string
+    class_name?: string
+  }) => {
+    setAppError('')
+    try {
+      const created = await callAdminUsersApi<Profile>('create', {
+        full_name: draft.full_name,
+        email: draft.email,
+        password: draft.password,
+        role: 'student',
+        class_name: draft.class_name ?? '',
+        speciality: '',
+      })
+      await refreshProfiles()
+      return created
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not create the student login.')
+      throw error
+    }
+  }
+
+  const createTeacherLoginFromCalendar = async (draft: {
+    full_name: string
+    email: string
+    password: string
+    speciality?: string
+  }) => {
+    setAppError('')
+    try {
+      const created = await callAdminUsersApi<Profile>('create', {
+        full_name: draft.full_name,
+        email: draft.email,
+        password: draft.password,
+        role: 'teacher',
+        class_name: '',
+        speciality: draft.speciality ?? '',
+      })
+      await refreshProfiles()
+      return created
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not create the teacher login.')
+      throw error
+    }
   }
 
   if (loading) {
@@ -988,64 +1063,93 @@ function App() {
                 </div>
               </div>
 
-              <form className="form-card" onSubmit={handleCreateLesson}>
-                <input
-                  required
-                  placeholder="Subject"
-                  value={lessonForm.subject}
-                  onChange={(event) => setLessonForm({ ...lessonForm, subject: event.target.value })}
+              <div className="button-row wrap">
+                <button
+                  type="button"
+                  className={adminLessonView === 'calendar' ? 'primary-button' : 'ghost-button'}
+                  onClick={() => setAdminLessonView('calendar')}
+                >
+                  Calendar view
+                </button>
+                <button
+                  type="button"
+                  className={adminLessonView === 'form' ? 'primary-button' : 'ghost-button'}
+                  onClick={() => setAdminLessonView('form')}
+                >
+                  Quick form
+                </button>
+              </div>
+
+              {adminLessonView === 'calendar' ? (
+                <AdminCalendar
+                  lessons={lessons}
+                  profilesById={profilesById}
+                  students={students}
+                  teachers={teachers}
+                  onCreateLesson={createLessonFromDraft}
+                  onCreateStudentLogin={createStudentLoginFromCalendar}
+                  onCreateTeacherLogin={createTeacherLoginFromCalendar}
                 />
-                <div className="form-grid">
-                  <select
-                    value={lessonForm.student_id}
-                    onChange={(event) => {
-                      const studentId = event.target.value
-                      setLessonForm({
-                        ...lessonForm,
-                        student_id: studentId,
-                        class_name: profilesById[studentId]?.class_name ?? '',
-                      })
-                    }}
-                  >
-                    {students.map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.full_name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={lessonForm.teacher_id}
-                    onChange={(event) => setLessonForm({ ...lessonForm, teacher_id: event.target.value })}
-                  >
-                    {teachers.map((teacher) => (
-                      <option key={teacher.id} value={teacher.id}>
-                        {teacher.full_name}
-                      </option>
-                    ))}
-                  </select>
+              ) : (
+                <form className="form-card" onSubmit={handleCreateLesson}>
                   <input
                     required
-                    placeholder="Class"
-                    value={lessonForm.class_name}
-                    onChange={(event) => setLessonForm({ ...lessonForm, class_name: event.target.value })}
+                    placeholder="Subject"
+                    value={lessonForm.subject}
+                    onChange={(event) => setLessonForm({ ...lessonForm, subject: event.target.value })}
                   />
-                  <input
-                    required
-                    type="datetime-local"
-                    value={lessonForm.starts_at}
-                    onChange={(event) => setLessonForm({ ...lessonForm, starts_at: event.target.value })}
-                  />
-                  <input
-                    required
-                    type="number"
-                    min={15}
-                    step={5}
-                    value={lessonForm.duration_minutes}
-                    onChange={(event) => setLessonForm({ ...lessonForm, duration_minutes: Number(event.target.value) })}
-                  />
-                </div>
-                <button className="primary-button">Create lesson</button>
-              </form>
+                  <div className="form-grid">
+                    <select
+                      value={lessonForm.student_id}
+                      onChange={(event) => {
+                        const studentId = event.target.value
+                        setLessonForm({
+                          ...lessonForm,
+                          student_id: studentId,
+                          class_name: profilesById[studentId]?.class_name ?? '',
+                        })
+                      }}
+                    >
+                      {students.map((student) => (
+                        <option key={student.id} value={student.id}>
+                          {student.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={lessonForm.teacher_id}
+                      onChange={(event) => setLessonForm({ ...lessonForm, teacher_id: event.target.value })}
+                    >
+                      {teachers.map((teacher) => (
+                        <option key={teacher.id} value={teacher.id}>
+                          {teacher.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      required
+                      placeholder="Class"
+                      value={lessonForm.class_name}
+                      onChange={(event) => setLessonForm({ ...lessonForm, class_name: event.target.value })}
+                    />
+                    <input
+                      required
+                      type="datetime-local"
+                      value={lessonForm.starts_at}
+                      onChange={(event) => setLessonForm({ ...lessonForm, starts_at: event.target.value })}
+                    />
+                    <input
+                      required
+                      type="number"
+                      min={15}
+                      step={5}
+                      value={lessonForm.duration_minutes}
+                      onChange={(event) => setLessonForm({ ...lessonForm, duration_minutes: Number(event.target.value) })}
+                    />
+                  </div>
+                  <button className="primary-button">Create lesson</button>
+                </form>
+              )}
 
               <div className="list-stack">
                 <h3>Tracked outcomes</h3>
