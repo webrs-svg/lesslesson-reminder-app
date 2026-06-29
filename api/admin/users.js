@@ -77,6 +77,59 @@ const createUser = async (supabaseAdmin, payload) => {
   return profilePayload
 }
 
+const inviteUser = async (supabaseAdmin, payload) => {
+  const email = String(payload?.email ?? '').trim()
+  const fullName = String(payload?.full_name ?? '').trim()
+  const role = payload?.role
+
+  if (!email || !email.includes('@')) {
+    throw new Error('A valid email address is required.')
+  }
+
+  if (!fullName) {
+    throw new Error('Full name is required.')
+  }
+
+  if (!role || !['admin', 'teacher', 'student'].includes(role)) {
+    throw new Error('A valid role is required.')
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+    type: 'invite',
+    email,
+    options: {
+      data: { full_name: fullName },
+    },
+  })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const user = data?.user
+  const inviteLink = data?.properties?.action_link
+  if (!user?.id || !inviteLink) {
+    throw new Error('Invite link could not be generated.')
+  }
+
+  const profilePayload = {
+    id: user.id,
+    email,
+    full_name: fullName,
+    role,
+    class_name: role === 'student' ? payload.class_name || '' : '',
+    speciality: role === 'student' ? '' : payload.speciality || '',
+    push_enabled: false,
+  }
+
+  const { error: profileError } = await supabaseAdmin.from('profiles').upsert(profilePayload)
+  if (profileError) {
+    throw new Error(profileError.message)
+  }
+
+  return { profile: profilePayload, invite_link: inviteLink }
+}
+
 const updateUser = async (supabaseAdmin, payload) => {
   const updateAuthPayload = {
     email: payload.email,
@@ -166,6 +219,11 @@ export default async function handler(req, res) {
     if (action === 'create') {
       const created = await createUser(supabaseAdmin, payload)
       return json(res, 200, { data: created })
+    }
+
+    if (action === 'invite') {
+      const invited = await inviteUser(supabaseAdmin, payload)
+      return json(res, 200, { data: invited })
     }
 
     if (action === 'update') {

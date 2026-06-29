@@ -568,6 +568,21 @@ input::placeholder {
   pointer-events: none;
 }
 
+.calendar-event-success {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.calendar-event-danger {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.calendar-event-neutral {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(96, 165, 250, 0.25);
+}
+
 .calendar-form-section {
   display: flex;
   flex-direction: column;

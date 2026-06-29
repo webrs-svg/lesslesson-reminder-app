@@ -365,13 +365,25 @@ export default function AdminCalendar({
                 const span = Math.max(1, Math.ceil(lesson.duration_minutes / slotMinutes))
                 const studentName = profilesById[lesson.student_id]?.full_name ?? 'Student'
                 const teacherName = profilesById[lesson.teacher_id]?.full_name ?? 'Teacher'
+                const attendanceLabel =
+                  lesson.student_attendance === 'attend'
+                    ? 'Confirmed'
+                    : lesson.student_attendance === 'cancel'
+                      ? 'Cancelled'
+                      : 'No reply yet'
+                const attendanceClass =
+                  lesson.student_attendance === 'attend'
+                    ? 'calendar-event calendar-event-success'
+                    : lesson.student_attendance === 'cancel'
+                      ? 'calendar-event calendar-event-danger'
+                      : 'calendar-event calendar-event-neutral'
 
                 if (startIndex < 0 || startIndex >= slotCount) return null
 
                 return (
                   <div
                     key={lesson.id}
-                    className="calendar-event"
+                    className={attendanceClass}
                     style={{
                       gridRow: `${startIndex + 1} / span ${span}`,
                     }}
@@ -381,6 +393,7 @@ export default function AdminCalendar({
                     <span className="muted tiny-copy">
                       {studentName} · {teacherName}
                     </span>
+                    <span className="muted tiny-copy">Student: {attendanceLabel}</span>
                   </div>
                 )
               })}

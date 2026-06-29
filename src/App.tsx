@@ -22,6 +22,13 @@ type UserFormState = {
   speciality: string
 }
 
+type AccountFormState = {
+  full_name: string
+  email: string
+  password: string
+  confirm_password: string
+}
+
 type PendingLink = {
   lessonId: string | null
   intent: ReminderIntent | null
@@ -39,6 +46,13 @@ const defaultUserForm = (): UserFormState => ({
   role: 'student',
   class_name: '',
   speciality: '',
+})
+
+const defaultAccountForm = (profile: Profile | null): AccountFormState => ({
+  full_name: profile?.full_name ?? '',
+  email: profile?.email ?? '',
+  password: '',
+  confirm_password: '',
 })
 
 const formatDateTime = (value: string) =>
@@ -144,7 +158,14 @@ function App() {
   const [pendingLink, setPendingLink] = useState<PendingLink>({ lessonId: null, intent: null })
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
-  const [adminTab, setAdminTab] = useState<'users' | 'calendar'>('users')
+  const [adminTab, setAdminTab] = useState<'users' | 'calendar' | 'management'>('users')
+  const [createWithSetupLink, setCreateWithSetupLink] = useState(false)
+  const [latestSetupLink, setLatestSetupLink] = useState<string | null>(null)
+  const [accountForm, setAccountForm] = useState<AccountFormState>(() => defaultAccountForm(null))
+  const [accountSaving, setAccountSaving] = useState(false)
+  const [accountSaved, setAccountSaved] = useState(false)
+  const [managementRole, setManagementRole] = useState<'student' | 'teacher'>('student')
+  const [managementUserId, setManagementUserId] = useState<string>('')
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 30000)
@@ -266,6 +287,35 @@ function App() {
   }, [session])
 
   useEffect(() => {
+    setAccountForm(defaultAccountForm(profile))
+    setAccountSaved(false)
+  }, [profile?.id])
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+
+    const channel = supabase
+      .channel(`db-changes-${session.user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lessons' }, () => {
+        void refreshLessons()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload: any) => {
+        const changedId = payload?.new?.id || payload?.old?.id
+        if (profile?.role === 'admin') {
+          void refreshProfiles()
+        }
+        if (changedId && changedId === session.user.id) {
+          void refreshProfile(session.user.id)
+        }
+      })
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [session?.user?.id, profile?.role])
+
+  useEffect(() => {
     if (!pendingLink.lessonId || !pendingLink.intent || !session?.user) return
 
     const targetLesson = lessons.find((lesson) => lesson.id === pendingLink.lessonId)
@@ -284,6 +334,27 @@ function App() {
 
   const students = profiles.filter((item) => item.role === 'student')
   const teachers = profiles.filter((item) => item.role === 'teacher')
+
+  useEffect(() => {
+    if (!managementUserId) {
+      const nextId = managementRole === 'student' ? students[0]?.id : teachers[0]?.id
+      if (nextId) {
+        setManagementUserId(nextId)
+      }
+    }
+  }, [managementUserId, managementRole, students, teachers])
+
+  const managementLessons = useMemo(() => {
+    if (!managementUserId) return []
+    const filtered =
+      managementRole === 'student'
+        ? lessons.filter((lesson) => lesson.student_id === managementUserId)
+        : lessons.filter((lesson) => lesson.teacher_id === managementUserId)
+    return filtered.sort(sortByDateDesc)
+  }, [lessons, managementRole, managementUserId])
+
+  const managementAttended = managementLessons.filter((lesson) => lesson.student_attendance === 'attend')
+  const managementCancelled = managementLessons.filter((lesson) => lesson.student_attendance === 'cancel')
 
   const visibleLessons = useMemo(() => {
     if (!profile) return []
@@ -566,7 +637,7 @@ function App() {
     await refreshLessons()
   }
 
-  const callAdminUsersApi = async <T,>(action: 'create' | 'update' | 'delete', payload: unknown): Promise<T> => {
+  const callAdminUsersApi = async <T,>(action: 'create' | 'invite' | 'update' | 'delete', payload: unknown): Promise<T> => {
     if (!session?.access_token) {
       throw new Error('You are not signed in.')
     }
@@ -619,9 +690,21 @@ function App() {
   const handleCreateUser = async (event: FormEvent) => {
     event.preventDefault()
     setAppError('')
+    setLatestSetupLink(null)
 
     try {
-      await callAdminUsersApi('create', userForm)
+      if (createWithSetupLink) {
+        const result = await callAdminUsersApi<{ profile: Profile; invite_link: string }>('invite', {
+          full_name: userForm.full_name,
+          email: userForm.email,
+          role: userForm.role,
+          class_name: userForm.class_name,
+          speciality: userForm.speciality,
+        })
+        setLatestSetupLink(result.invite_link)
+      } else {
+        await callAdminUsersApi('create', userForm)
+      }
     } catch (error) {
       setAppError(error instanceof Error ? error.message : 'Could not create the user.')
       return
@@ -729,6 +812,49 @@ function App() {
     } catch (error) {
       setAppError(error instanceof Error ? error.message : 'Could not create the teacher login.')
       throw error
+    }
+  }
+
+  const handleUpdateAccount = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!session?.access_token) return
+    if (!profile) return
+
+    setAppError('')
+    setAccountSaved(false)
+
+    if (accountForm.password && accountForm.password !== accountForm.confirm_password) {
+      setAppError('Passwords do not match.')
+      return
+    }
+
+    setAccountSaving(true)
+    try {
+      const response = await fetch('/api/me/account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          full_name: accountForm.full_name,
+          email: accountForm.email,
+          password: accountForm.password || undefined,
+        }),
+      })
+
+      const result = (await response.json()) as { data?: { full_name: string; email: string }; error?: string }
+      if (!response.ok) {
+        throw new Error(result.error ?? 'Could not update account details.')
+      }
+
+      await refreshProfile(profile.id)
+      setAccountForm((current) => ({ ...current, password: '', confirm_password: '' }))
+      setAccountSaved(true)
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : 'Could not update account details.')
+    } finally {
+      setAccountSaving(false)
     }
   }
 
@@ -937,7 +1063,7 @@ function App() {
             <div className="panel-header">
               <div>
                 <p className="section-label">Admin</p>
-                <h2>{adminTab === 'users' ? 'Users' : 'Calendar'}</h2>
+                <h2>{adminTab === 'users' ? 'Users' : adminTab === 'calendar' ? 'Calendar' : 'Management'}</h2>
               </div>
               <div className="tab-row">
                 <button
@@ -953,6 +1079,13 @@ function App() {
                   onClick={() => setAdminTab('calendar')}
                 >
                   Calendar
+                </button>
+                <button
+                  type="button"
+                  className={adminTab === 'management' ? 'tab-button tab-button-active' : 'tab-button'}
+                  onClick={() => setAdminTab('management')}
+                >
+                  Management
                 </button>
               </div>
             </div>
@@ -975,10 +1108,11 @@ function App() {
                       onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
                     />
                     <input
-                      required
+                      required={!createWithSetupLink}
                       type="password"
-                      placeholder="Password"
+                      placeholder={createWithSetupLink ? 'Password (not needed)' : 'Password'}
                       value={userForm.password}
+                      disabled={createWithSetupLink}
                       onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
                     />
                     <select
@@ -1012,8 +1146,43 @@ function App() {
                       />
                     )}
                   </div>
+                  <div className="calendar-form-section">
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={createWithSetupLink}
+                        onChange={(event) => {
+                          setCreateWithSetupLink(event.target.checked)
+                          if (event.target.checked) {
+                            setUserForm((current) => ({ ...current, password: '' }))
+                          }
+                        }}
+                      />
+                      Create a setup link (no password yet)
+                    </label>
+                    <p className="muted tiny-copy">
+                      You will get a link to share with the user. They’ll finish setting a password and then can sign in.
+                    </p>
+                  </div>
                   <button className="primary-button">Add user</button>
                 </form>
+
+                {latestSetupLink && (
+                  <div className="credential-card">
+                    <p className="section-label">Setup link</p>
+                    <p className="muted tiny-copy">Share this link with the new user:</p>
+                    <p className="inline-code" style={{ wordBreak: 'break-all' }}>
+                      {latestSetupLink}
+                    </p>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void navigator.clipboard.writeText(latestSetupLink)}
+                    >
+                      Copy link
+                    </button>
+                  </div>
+                )}
 
                 <div className="user-table">
                   {profiles.map((item) => (
@@ -1028,7 +1197,7 @@ function App() {
                   ))}
                 </div>
               </>
-            ) : (
+            ) : adminTab === 'calendar' ? (
               <>
                 <AdminCalendar
                   lessons={lessons}
@@ -1066,6 +1235,87 @@ function App() {
                     </div>
                   ))}
                 </div>
+              </>
+            ) : (
+              <>
+                <div className="form-card">
+                  <div className="form-grid">
+                    <select
+                      value={managementRole}
+                      onChange={(event) => {
+                        const nextRole = event.target.value as 'student' | 'teacher'
+                        setManagementRole(nextRole)
+                        const nextId = nextRole === 'student' ? students[0]?.id : teachers[0]?.id
+                        setManagementUserId(nextId ?? '')
+                      }}
+                    >
+                      <option value="student">Student</option>
+                      <option value="teacher">Teacher</option>
+                    </select>
+
+                    <select value={managementUserId} onChange={(event) => setManagementUserId(event.target.value)}>
+                      {(managementRole === 'student' ? students : teachers).map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {managementRole === 'student' ? (
+                  <div className="split-column">
+                    <section>
+                      <h3>Confirmed</h3>
+                      <div className="list-stack">
+                        {managementAttended.map((lesson) => (
+                          <div key={lesson.id} className={lessonCardClass(lesson.id)}>
+                            <div>
+                              <h3>{lesson.subject}</h3>
+                              <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                              <p className="muted">Teacher: {profilesById[lesson.teacher_id]?.full_name}</p>
+                            </div>
+                            <span className={badgeClass('confirmed')}>Confirmed</span>
+                          </div>
+                        ))}
+                        {managementAttended.length === 0 && <p className="empty-state">No confirmed lessons yet.</p>}
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3>Cancelled</h3>
+                      <div className="list-stack">
+                        {managementCancelled.map((lesson) => (
+                          <div key={lesson.id} className={lessonCardClass(lesson.id)}>
+                            <div>
+                              <h3>{lesson.subject}</h3>
+                              <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                              <p className="muted">Teacher: {profilesById[lesson.teacher_id]?.full_name}</p>
+                            </div>
+                            <span className={badgeClass('cancel')}>Cancelled</span>
+                          </div>
+                        ))}
+                        {managementCancelled.length === 0 && <p className="empty-state">No cancelled lessons yet.</p>}
+                      </div>
+                    </section>
+                  </div>
+                ) : (
+                  <div className="list-stack">
+                    <h3>Teacher lesson history</h3>
+                    {managementLessons.map((lesson) => (
+                      <div key={lesson.id} className={lessonCardClass(lesson.id)}>
+                        <div>
+                          <h3>{lesson.subject}</h3>
+                          <p className="muted">
+                            {profilesById[lesson.student_id]?.full_name} · {formatShortDate(lesson.starts_at)}
+                          </p>
+                        </div>
+                        <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
+                      </div>
+                    ))}
+                    {managementLessons.length === 0 && <p className="empty-state">No lessons found for this teacher yet.</p>}
+                  </div>
+                )}
               </>
             )}
           </section>
@@ -1171,6 +1421,49 @@ function App() {
                   </div>
                 </section>
               </div>
+            </article>
+
+            <article className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Student</p>
+                  <h2>Account</h2>
+                </div>
+              </div>
+
+              <form className="form-card" onSubmit={handleUpdateAccount}>
+                <input
+                  required
+                  placeholder="Full name"
+                  value={accountForm.full_name}
+                  onChange={(event) => setAccountForm({ ...accountForm, full_name: event.target.value })}
+                />
+                <input
+                  required
+                  type="email"
+                  placeholder="Email"
+                  value={accountForm.email}
+                  onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })}
+                />
+                <div className="form-grid">
+                  <input
+                    type="password"
+                    placeholder="New password (optional)"
+                    value={accountForm.password}
+                    onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })}
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={accountForm.confirm_password}
+                    onChange={(event) => setAccountForm({ ...accountForm, confirm_password: event.target.value })}
+                  />
+                </div>
+                {accountSaved && <p className="muted">Saved.</p>}
+                <button className="primary-button" disabled={accountSaving}>
+                  {accountSaving ? 'Saving...' : 'Save changes'}
+                </button>
+              </form>
             </article>
           </section>
         )}
@@ -1283,6 +1576,49 @@ function App() {
                   </div>
                 </section>
               </div>
+            </article>
+
+            <article className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Teacher</p>
+                  <h2>Account</h2>
+                </div>
+              </div>
+
+              <form className="form-card" onSubmit={handleUpdateAccount}>
+                <input
+                  required
+                  placeholder="Full name"
+                  value={accountForm.full_name}
+                  onChange={(event) => setAccountForm({ ...accountForm, full_name: event.target.value })}
+                />
+                <input
+                  required
+                  type="email"
+                  placeholder="Email"
+                  value={accountForm.email}
+                  onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })}
+                />
+                <div className="form-grid">
+                  <input
+                    type="password"
+                    placeholder="New password (optional)"
+                    value={accountForm.password}
+                    onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })}
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={accountForm.confirm_password}
+                    onChange={(event) => setAccountForm({ ...accountForm, confirm_password: event.target.value })}
+                  />
+                </div>
+                {accountSaved && <p className="muted">Saved.</p>}
+                <button className="primary-button" disabled={accountSaving}>
+                  {accountSaving ? 'Saving...' : 'Save changes'}
+                </button>
+              </form>
             </article>
           </section>
         )}
