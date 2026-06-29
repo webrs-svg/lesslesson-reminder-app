@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
 import AdminCalendar from './components/AdminCalendar'
+import { getDeviceLanguage, getStoredLanguage, Language, storeLanguage, supportedLanguages, t } from './lib/i18n'
 import {
   BrowserPermission,
   InstallPromptEvent,
@@ -143,6 +144,7 @@ const StatCard = ({ label, value }: { label: string; value: string | number }) =
 )
 
 function App() {
+  const [language, setLanguage] = useState<Language>(() => getStoredLanguage() ?? getDeviceLanguage())
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [appError, setAppError] = useState('')
@@ -173,6 +175,10 @@ function App() {
   const [accountSaved, setAccountSaved] = useState(false)
   const [managementRole, setManagementRole] = useState<'student' | 'teacher'>('student')
   const [managementUserId, setManagementUserId] = useState<string>('')
+
+  useEffect(() => {
+    storeLanguage(language)
+  }, [language])
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 30000)
@@ -255,28 +261,38 @@ function App() {
     let cancelled = false
 
     const runSetupSignIn = async () => {
+      // Clear the credentials immediately so a fast session update doesn't re-run this effect,
+      // and always turn off the "opening" state even if the effect is cancelled mid-flight.
+      const creds = setupCredentials
+      setSetupCredentials(null)
       setSetupSigningIn(true)
-      const { error } = await supabase.auth.signInWithPassword({
-        email: setupCredentials.email,
-        password: setupCredentials.password,
-      })
 
-      if (cancelled) return
+      try {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: creds.email,
+          password: creds.password,
+        })
 
-      if (error) {
-        setLoginError('This setup link is invalid or has expired.')
-      } else {
+        if (cancelled) return
+
+        if (error) {
+          setLoginError('This setup link is invalid or has expired.')
+          return
+        }
+
         setSetupMode(true)
-        setLoginForm({ email: setupCredentials.email, password: '' })
+        setLoginForm({ email: creds.email, password: '' })
         const params = new URLSearchParams(window.location.search)
         params.delete('setup_email')
         params.delete('setup_password')
         const nextQuery = params.toString()
         window.history.replaceState({}, document.title, nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname)
+      } finally {
+        // Important: do not get stuck if session changes quickly during setup sign-in.
+        if (!cancelled) {
+          setSetupSigningIn(false)
+        }
       }
-
-      setSetupCredentials(null)
-      setSetupSigningIn(false)
     }
 
     void runSetupSignIn()
@@ -1012,7 +1028,7 @@ function App() {
           </div>
 
           <form className="form-card" onSubmit={handleLogin}>
-            {setupSigningIn && <p className="muted">Opening your setup link…</p>}
+            {setupSigningIn && <p className="muted">{t(language, 'opening_setup_link')}</p>}
             <input
               required
               type="email"
@@ -1073,6 +1089,17 @@ function App() {
             {isTeacher && 'See your weekly teaching schedule and record lesson outcomes with your students.'}
             {isStudent && 'Review your lessons, respond to reminders, and mark whether classes happened.'}
           </p>
+        </div>
+
+        <div className="clock-panel">
+          <p className="section-label">{t(language, 'language')}</p>
+          <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+            {supportedLanguages.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="clock-panel">
@@ -1153,21 +1180,21 @@ function App() {
                   className={adminTab === 'users' ? 'tab-button tab-button-active' : 'tab-button'}
                   onClick={() => setAdminTab('users')}
                 >
-                  Users
+                  {t(language, 'users')}
                 </button>
                 <button
                   type="button"
                   className={adminTab === 'calendar' ? 'tab-button tab-button-active' : 'tab-button'}
                   onClick={() => setAdminTab('calendar')}
                 >
-                  Calendar
+                  {t(language, 'calendar')}
                 </button>
                 <button
                   type="button"
                   className={adminTab === 'management' ? 'tab-button tab-button-active' : 'tab-button'}
                   onClick={() => setAdminTab('management')}
                 >
-                  Management
+                  {t(language, 'management')}
                 </button>
               </div>
             </div>
@@ -1178,20 +1205,20 @@ function App() {
                   <div className="form-grid">
                     <input
                       required
-                      placeholder="Full name"
+                      placeholder={t(language, 'full_name')}
                       value={userForm.full_name}
                       onChange={(event) => setUserForm({ ...userForm, full_name: event.target.value })}
                     />
                     <input
                       type="email"
-                      placeholder="Email (optional)"
+                      placeholder={t(language, 'email_optional')}
                       value={userForm.email}
                       onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
                     />
                     <input
                       required={!createWithSetupLink}
                       type="password"
-                      placeholder={createWithSetupLink ? 'Password (not needed)' : 'Password'}
+                      placeholder={createWithSetupLink ? t(language, 'password_not_needed') : t(language, 'password')}
                       value={userForm.password}
                       disabled={createWithSetupLink}
                       onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
@@ -1215,7 +1242,7 @@ function App() {
                       <>
                         <input
                           type="datetime-local"
-                          placeholder="Class time"
+                          placeholder={t(language, 'first_class_time_optional')}
                           value={userForm.first_class_at}
                           onChange={(event) => setUserForm({ ...userForm, first_class_at: event.target.value })}
                         />
@@ -1223,7 +1250,7 @@ function App() {
                           value={userForm.first_class_teacher_id}
                           onChange={(event) => setUserForm({ ...userForm, first_class_teacher_id: event.target.value })}
                         >
-                          <option value="">Choose a teacher for the first class</option>
+                          <option value="">{t(language, 'choose_teacher_first_class')}</option>
                           {teachers.map((teacher) => (
                             <option key={teacher.id} value={teacher.id}>
                               {teacher.full_name}
@@ -1251,19 +1278,17 @@ function App() {
                           }
                         }}
                       />
-                      Create a setup link (no password yet)
+                      {t(language, 'create_setup_link')}
                     </label>
-                    <p className="muted tiny-copy">
-                      You will get a link to share with the user. They’ll finish setting a password and then can sign in.
-                    </p>
+                    <p className="muted tiny-copy">{t(language, 'setup_link_help')}</p>
                   </div>
-                  <button className="primary-button">Add user</button>
+                  <button className="primary-button">{t(language, 'add_user')}</button>
                 </form>
 
                 {latestSetupLink && (
                   <div className="credential-card">
-                    <p className="section-label">Setup link</p>
-                    <p className="muted tiny-copy">Share this link with the new user:</p>
+                    <p className="section-label">{t(language, 'setup_link_title')}</p>
+                    <p className="muted tiny-copy">{t(language, 'setup_link_share')}</p>
                     <p className="inline-code" style={{ wordBreak: 'break-all' }}>
                       {latestSetupLink}
                     </p>
@@ -1272,7 +1297,7 @@ function App() {
                       className="secondary-button"
                       onClick={() => void navigator.clipboard.writeText(latestSetupLink)}
                     >
-                      Copy link
+                      {t(language, 'copy_link')}
                     </button>
                   </div>
                 )}
@@ -1525,7 +1550,7 @@ function App() {
               </div>
 
               <form className="form-card" onSubmit={handleUpdateAccount}>
-                {setupMode && <p className="muted">Finish your account by checking your name, email, and password below.</p>}
+                {setupMode && <p className="muted">{t(language, 'setup_finish_hint')}</p>}
                 <input
                   required
                   placeholder="Full name"
@@ -1681,7 +1706,7 @@ function App() {
               </div>
 
               <form className="form-card" onSubmit={handleUpdateAccount}>
-                {setupMode && <p className="muted">Finish your account by checking your name, email, and password below.</p>}
+                {setupMode && <p className="muted">{t(language, 'setup_finish_hint')}</p>}
                 <input
                   required
                   placeholder="Full name"

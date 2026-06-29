@@ -407,6 +407,7 @@ export default function AdminCalendar({
                     : lesson.student_attendance === 'cancel'
                       ? 'calendar-event calendar-event-danger'
                       : 'calendar-event calendar-event-neutral'
+                const layout = lessonLayouts[lesson.id] ?? { column: 0, totalColumns: 1 }
 
                 if (startIndex < 0 || startIndex >= slotCount) return null
 
@@ -416,8 +417,8 @@ export default function AdminCalendar({
                     className={attendanceClass}
                     style={{
                       gridRow: `${startIndex + 1} / span ${span}`,
-                      width: `calc(${100 / lessonLayouts[lesson.id].totalColumns}% - 8px)`,
-                      marginLeft: `calc(${(100 / lessonLayouts[lesson.id].totalColumns) * lessonLayouts[lesson.id].column}% + 4px)`,
+                      width: `calc(${100 / layout.totalColumns}% - 8px)`,
+                      marginLeft: `calc(${(100 / layout.totalColumns) * layout.column}% + 4px)`,
                     }}
                     title={`${lesson.subject} • ${studentName} with ${teacherName}`}
                   >
