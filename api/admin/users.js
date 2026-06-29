@@ -22,6 +22,31 @@ const getSupabaseAdmin = () => {
   })
 }
 
+const slugify = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+
+const fallbackEmail = (fullName) => {
+  const slug = slugify(fullName) || 'user'
+  return `${slug}-${Date.now()}@setup.local`
+}
+
+const normalizeEmail = (email, fullName) => {
+  const trimmed = String(email ?? '').trim()
+  if (trimmed) return trimmed
+  return fallbackEmail(fullName)
+}
+
+const randomPassword = () => `Setup!${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+
+const getBaseUrl = (req) => {
+  const proto = req.headers['x-forwarded-proto'] || 'https'
+  const host = req.headers['x-forwarded-host'] || req.headers.host
+  return `${proto}://${host}`
+}
+
 const assertAdmin = async (req) => {
   const authHeader = req.headers.authorization || ''
   const token = authHeader.replace(/^Bearer\s+/i, '')
@@ -48,8 +73,10 @@ const assertAdmin = async (req) => {
 }
 
 const createUser = async (supabaseAdmin, payload) => {
+  const email = normalizeEmail(payload.email, payload.full_name)
+
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email: payload.email,
+    email,
     password: payload.password,
     email_confirm: true,
     user_metadata: { full_name: payload.full_name },
@@ -61,7 +88,7 @@ const createUser = async (supabaseAdmin, payload) => {
 
   const profilePayload = {
     id: data.user.id,
-    email: payload.email,
+    email,
     full_name: payload.full_name,
     role: payload.role,
     class_name: payload.role === 'student' ? payload.class_name || '' : '',
@@ -77,14 +104,11 @@ const createUser = async (supabaseAdmin, payload) => {
   return profilePayload
 }
 
-const inviteUser = async (supabaseAdmin, payload) => {
-  const email = String(payload?.email ?? '').trim()
+const inviteUser = async (supabaseAdmin, req, payload) => {
+  const email = normalizeEmail(payload?.email, payload?.full_name)
   const fullName = String(payload?.full_name ?? '').trim()
   const role = payload?.role
-
-  if (!email || !email.includes('@')) {
-    throw new Error('A valid email address is required.')
-  }
+  const tempPassword = randomPassword()
 
   if (!fullName) {
     throw new Error('Full name is required.')
@@ -94,23 +118,19 @@ const inviteUser = async (supabaseAdmin, payload) => {
     throw new Error('A valid role is required.')
   }
 
-  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
-    type: 'invite',
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
-    options: {
-      data: { full_name: fullName },
-    },
+    password: tempPassword,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
   })
 
-  if (error) {
+  if (error || !data?.user) {
     throw new Error(error.message)
   }
 
-  const user = data?.user
-  const inviteLink = data?.properties?.action_link
-  if (!user?.id || !inviteLink) {
-    throw new Error('Invite link could not be generated.')
-  }
+  const user = data.user
+  const inviteLink = `${getBaseUrl(req)}/?setup_email=${encodeURIComponent(email)}&setup_password=${encodeURIComponent(tempPassword)}`
 
   const profilePayload = {
     id: user.id,
@@ -222,7 +242,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'invite') {
-      const invited = await inviteUser(supabaseAdmin, payload)
+      const invited = await inviteUser(supabaseAdmin, req, payload)
       return json(res, 200, { data: invited })
     }
 

@@ -20,6 +20,8 @@ type UserFormState = {
   role: UserRole
   class_name: string
   speciality: string
+  first_class_at: string
+  first_class_teacher_id: string
 }
 
 type AccountFormState = {
@@ -46,6 +48,8 @@ const defaultUserForm = (): UserFormState => ({
   role: 'student',
   class_name: '',
   speciality: '',
+  first_class_at: '',
+  first_class_teacher_id: '',
 })
 
 const defaultAccountForm = (profile: Profile | null): AccountFormState => ({
@@ -161,6 +165,9 @@ function App() {
   const [adminTab, setAdminTab] = useState<'users' | 'calendar' | 'management'>('users')
   const [createWithSetupLink, setCreateWithSetupLink] = useState(false)
   const [latestSetupLink, setLatestSetupLink] = useState<string | null>(null)
+  const [setupCredentials, setSetupCredentials] = useState<{ email: string; password: string } | null>(null)
+  const [setupMode, setSetupMode] = useState(false)
+  const [setupSigningIn, setSetupSigningIn] = useState(false)
   const [accountForm, setAccountForm] = useState<AccountFormState>(() => defaultAccountForm(null))
   const [accountSaving, setAccountSaving] = useState(false)
   const [accountSaved, setAccountSaved] = useState(false)
@@ -176,10 +183,22 @@ function App() {
     const params = new URLSearchParams(window.location.search)
     const lessonId = params.get('lessonId')
     const intent = params.get('intent') as ReminderIntent | null
+    const setupEmail = params.get('setup_email')
+    const setupPassword = params.get('setup_password')
 
     if (lessonId || intent) {
       setPendingLink({ lessonId, intent })
-      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+
+    if (setupEmail && setupPassword) {
+      setSetupCredentials({ email: setupEmail, password: setupPassword })
+    }
+
+    if (lessonId || intent) {
+      params.delete('lessonId')
+      params.delete('intent')
+      const nextQuery = params.toString()
+      window.history.replaceState({}, document.title, nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname)
     }
   }, [])
 
@@ -229,6 +248,43 @@ function App() {
       authListener.subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!setupCredentials || setupSigningIn || loading || session || !isSupabaseConfigured) return
+
+    let cancelled = false
+
+    const runSetupSignIn = async () => {
+      setSetupSigningIn(true)
+      const { error } = await supabase.auth.signInWithPassword({
+        email: setupCredentials.email,
+        password: setupCredentials.password,
+      })
+
+      if (cancelled) return
+
+      if (error) {
+        setLoginError('This setup link is invalid or has expired.')
+      } else {
+        setSetupMode(true)
+        setLoginForm({ email: setupCredentials.email, password: '' })
+        const params = new URLSearchParams(window.location.search)
+        params.delete('setup_email')
+        params.delete('setup_password')
+        const nextQuery = params.toString()
+        window.history.replaceState({}, document.title, nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname)
+      }
+
+      setSetupCredentials(null)
+      setSetupSigningIn(false)
+    }
+
+    void runSetupSignIn()
+
+    return () => {
+      cancelled = true
+    }
+  }, [setupCredentials, setupSigningIn, loading, session])
 
   const refreshProfile = async (userId: string) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single()
@@ -334,6 +390,12 @@ function App() {
 
   const students = profiles.filter((item) => item.role === 'student')
   const teachers = profiles.filter((item) => item.role === 'teacher')
+
+  useEffect(() => {
+    if (!userForm.first_class_teacher_id && teachers[0]) {
+      setUserForm((current) => ({ ...current, first_class_teacher_id: teachers[0].id }))
+    }
+  }, [userForm.first_class_teacher_id, teachers])
 
   useEffect(() => {
     if (!managementUserId) {
@@ -692,6 +754,8 @@ function App() {
     setAppError('')
     setLatestSetupLink(null)
 
+    let createdProfile: Profile | null = null
+
     try {
       if (createWithSetupLink) {
         const result = await callAdminUsersApi<{ profile: Profile; invite_link: string }>('invite', {
@@ -701,9 +765,26 @@ function App() {
           class_name: userForm.class_name,
           speciality: userForm.speciality,
         })
+        createdProfile = result.profile
         setLatestSetupLink(result.invite_link)
       } else {
-        await callAdminUsersApi('create', userForm)
+        createdProfile = await callAdminUsersApi<Profile>('create', userForm)
+      }
+
+      if (createdProfile && createdProfile.role === 'student' && userForm.first_class_at) {
+        const teacherId = userForm.first_class_teacher_id || teachers[0]?.id
+        if (!teacherId) {
+          setAppError('User created, but there is no teacher yet for the first class.')
+        } else {
+          await createLessonFromDraft({
+            subject: `${createdProfile.full_name} class`,
+            class_name: createdProfile.class_name ?? '',
+            student_id: createdProfile.id,
+            teacher_id: teacherId,
+            starts_at: userForm.first_class_at,
+            duration_minutes: 60,
+          })
+        }
       }
     } catch (error) {
       setAppError(error instanceof Error ? error.message : 'Could not create the user.')
@@ -931,6 +1012,7 @@ function App() {
           </div>
 
           <form className="form-card" onSubmit={handleLogin}>
+            {setupSigningIn && <p className="muted">Opening your setup link…</p>}
             <input
               required
               type="email"
@@ -1101,9 +1183,8 @@ function App() {
                       onChange={(event) => setUserForm({ ...userForm, full_name: event.target.value })}
                     />
                     <input
-                      required
                       type="email"
-                      placeholder="Email"
+                      placeholder="Email (optional)"
                       value={userForm.email}
                       onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
                     />
@@ -1131,16 +1212,28 @@ function App() {
                       <option value="admin">Admin</option>
                     </select>
                     {userForm.role === 'student' ? (
-                      <input
-                        required
-                        placeholder="Class"
-                        value={userForm.class_name}
-                        onChange={(event) => setUserForm({ ...userForm, class_name: event.target.value })}
-                      />
+                      <>
+                        <input
+                          type="datetime-local"
+                          placeholder="Class time"
+                          value={userForm.first_class_at}
+                          onChange={(event) => setUserForm({ ...userForm, first_class_at: event.target.value })}
+                        />
+                        <select
+                          value={userForm.first_class_teacher_id}
+                          onChange={(event) => setUserForm({ ...userForm, first_class_teacher_id: event.target.value })}
+                        >
+                          <option value="">Choose a teacher for the first class</option>
+                          {teachers.map((teacher) => (
+                            <option key={teacher.id} value={teacher.id}>
+                              {teacher.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </>
                     ) : (
                       <input
-                        required
-                        placeholder={userForm.role === 'teacher' ? 'Speciality' : 'Admin label'}
+                        placeholder={userForm.role === 'teacher' ? 'Speciality (optional)' : 'Admin label (optional)'}
                         value={userForm.speciality}
                         onChange={(event) => setUserForm({ ...userForm, speciality: event.target.value })}
                       />
@@ -1432,6 +1525,7 @@ function App() {
               </div>
 
               <form className="form-card" onSubmit={handleUpdateAccount}>
+                {setupMode && <p className="muted">Finish your account by checking your name, email, and password below.</p>}
                 <input
                   required
                   placeholder="Full name"
@@ -1587,6 +1681,7 @@ function App() {
               </div>
 
               <form className="form-card" onSubmit={handleUpdateAccount}>
+                {setupMode && <p className="muted">Finish your account by checking your name, email, and password below.</p>}
                 <input
                   required
                   placeholder="Full name"

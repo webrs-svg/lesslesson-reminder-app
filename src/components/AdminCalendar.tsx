@@ -218,6 +218,36 @@ export default function AdminCalendar({
     return grouped
   }, [days, lessonsThisWeek, selectedTimeZone])
 
+  const lessonLayouts = useMemo(() => {
+    const layouts: Record<string, { column: number; totalColumns: number }> = {}
+
+    for (const day of days) {
+      const dayLessons = [...(lessonsByDay[day] ?? [])]
+      for (const lesson of dayLessons) {
+        const lessonStart = getZonedParts(new Date(lesson.starts_at), selectedTimeZone)
+        const lessonStartMinutes = lessonStart.hour * 60 + lessonStart.minute
+        const lessonEndMinutes = lessonStartMinutes + lesson.duration_minutes
+
+        const overlaps = dayLessons
+          .filter((other) => {
+            const otherStart = getZonedParts(new Date(other.starts_at), selectedTimeZone)
+            const otherStartMinutes = otherStart.hour * 60 + otherStart.minute
+            const otherEndMinutes = otherStartMinutes + other.duration_minutes
+            return lessonStartMinutes < otherEndMinutes && otherStartMinutes < lessonEndMinutes
+          })
+          .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime() || a.id.localeCompare(b.id))
+
+        const column = overlaps.findIndex((item) => item.id === lesson.id)
+        layouts[lesson.id] = {
+          column: Math.max(column, 0),
+          totalColumns: Math.max(overlaps.length, 1),
+        }
+      }
+    }
+
+    return layouts
+  }, [days, lessonsByDay, selectedTimeZone])
+
   const openCreate = (dayKey: string, minutesFromMidnight: number) => {
     const hours = Math.floor(minutesFromMidnight / 60)
     const minutes = minutesFromMidnight % 60
@@ -386,6 +416,8 @@ export default function AdminCalendar({
                     className={attendanceClass}
                     style={{
                       gridRow: `${startIndex + 1} / span ${span}`,
+                      width: `calc(${100 / lessonLayouts[lesson.id].totalColumns}% - 8px)`,
+                      marginLeft: `calc(${(100 / lessonLayouts[lesson.id].totalColumns) * lessonLayouts[lesson.id].column}% + 4px)`,
                     }}
                     title={`${lesson.subject} • ${studentName} with ${teacherName}`}
                   >
