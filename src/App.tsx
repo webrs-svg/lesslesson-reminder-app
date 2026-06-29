@@ -22,15 +22,6 @@ type UserFormState = {
   speciality: string
 }
 
-type LessonFormState = {
-  subject: string
-  class_name: string
-  student_id: string
-  teacher_id: string
-  starts_at: string
-  duration_minutes: number
-}
-
 type PendingLink = {
   lessonId: string | null
   intent: ReminderIntent | null
@@ -48,15 +39,6 @@ const defaultUserForm = (): UserFormState => ({
   role: 'student',
   class_name: '',
   speciality: '',
-})
-
-const defaultLessonForm = (): LessonFormState => ({
-  subject: '',
-  class_name: '',
-  student_id: '',
-  teacher_id: '',
-  starts_at: '',
-  duration_minutes: 60,
 })
 
 const formatDateTime = (value: string) =>
@@ -152,7 +134,6 @@ function App() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [userForm, setUserForm] = useState<UserFormState>(defaultUserForm())
-  const [lessonForm, setLessonForm] = useState<LessonFormState>(defaultLessonForm())
   const [notificationPermission, setNotificationPermission] = useState<BrowserPermission>(() =>
     'Notification' in window ? Notification.permission : 'unsupported',
   )
@@ -162,7 +143,8 @@ function App() {
   const [now, setNow] = useState(new Date())
   const [pendingLink, setPendingLink] = useState<PendingLink>({ lessonId: null, intent: null })
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
-  const [adminLessonView, setAdminLessonView] = useState<'calendar' | 'form'>('calendar')
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [adminTab, setAdminTab] = useState<'users' | 'calendar'>('users')
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 30000)
@@ -302,22 +284,6 @@ function App() {
 
   const students = profiles.filter((item) => item.role === 'student')
   const teachers = profiles.filter((item) => item.role === 'teacher')
-
-  useEffect(() => {
-    if (!lessonForm.student_id && students[0]) {
-      setLessonForm((current) => ({
-        ...current,
-        student_id: students[0].id,
-        class_name: students[0].class_name,
-      }))
-    }
-    if (!lessonForm.teacher_id && teachers[0]) {
-      setLessonForm((current) => ({
-        ...current,
-        teacher_id: teachers[0].id,
-      }))
-    }
-  }, [lessonForm.student_id, lessonForm.teacher_id, students, teachers])
 
   const visibleLessons = useMemo(() => {
     if (!profile) return []
@@ -681,8 +647,12 @@ function App() {
 
   const handleDeleteUser = async (userId: string) => {
     setAppError('')
+    setDeletingUserId(userId)
     const confirmed = window.confirm('Delete this user? This cannot be undone.')
-    if (!confirmed) return
+    if (!confirmed) {
+      setDeletingUserId(null)
+      return
+    }
 
     try {
       await callAdminUsersApi('delete', { id: userId })
@@ -692,38 +662,26 @@ function App() {
         const force = window.confirm('This user has lessons. Delete the user AND all linked lessons?')
         if (!force) {
           setAppError(message)
+          setDeletingUserId(null)
           return
         }
         try {
           await callAdminUsersApi('delete', { id: userId, force: true })
         } catch (forceError) {
           setAppError(forceError instanceof Error ? forceError.message : 'Could not delete the user.')
+          setDeletingUserId(null)
           return
         }
       } else {
         setAppError(message)
+        setDeletingUserId(null)
         return
       }
     }
 
     await refreshProfiles()
     await refreshLessons()
-  }
-
-  const handleCreateLesson = async (event: FormEvent) => {
-    event.preventDefault()
-    try {
-      await createLessonFromDraft(lessonForm)
-    } catch {
-      return
-    }
-
-    setLessonForm((current) => ({
-      ...defaultLessonForm(),
-      student_id: current.student_id,
-      teacher_id: current.teacher_id,
-      class_name: profilesById[current.student_id]?.class_name ?? '',
-    }))
+    setDeletingUserId(null)
   }
 
   const createStudentLoginFromCalendar = async (draft: {
@@ -977,110 +935,103 @@ function App() {
         )}
 
         {isAdmin && (
-          <section className="panel-grid">
-            <article className="panel">
-              <div className="panel-header">
-                <div>
-                  <p className="section-label">Admin</p>
-                  <h2>User dashboard</h2>
-                </div>
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Admin</p>
+                <h2>{adminTab === 'users' ? 'Users' : 'Calendar'}</h2>
               </div>
-
-              <form className="form-card" onSubmit={handleCreateUser}>
-                <div className="form-grid">
-                  <input
-                    required
-                    placeholder="Full name"
-                    value={userForm.full_name}
-                    onChange={(event) => setUserForm({ ...userForm, full_name: event.target.value })}
-                  />
-                  <input
-                    required
-                    type="email"
-                    placeholder="Email"
-                    value={userForm.email}
-                    onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
-                  />
-                  <input
-                    required
-                    type="password"
-                    placeholder="Password"
-                    value={userForm.password}
-                    onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
-                  />
-                  <select
-                    value={userForm.role}
-                    onChange={(event) =>
-                      setUserForm({
-                        ...userForm,
-                        role: event.target.value as UserRole,
-                        class_name: event.target.value === 'student' ? userForm.class_name : '',
-                        speciality: event.target.value !== 'student' ? userForm.speciality : '',
-                      })
-                    }
-                  >
-                    <option value="student">Student</option>
-                    <option value="teacher">Teacher</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  {userForm.role === 'student' ? (
-                    <input
-                      required
-                      placeholder="Class"
-                      value={userForm.class_name}
-                      onChange={(event) => setUserForm({ ...userForm, class_name: event.target.value })}
-                    />
-                  ) : (
-                    <input
-                      required
-                      placeholder={userForm.role === 'teacher' ? 'Speciality' : 'Admin label'}
-                      value={userForm.speciality}
-                      onChange={(event) => setUserForm({ ...userForm, speciality: event.target.value })}
-                    />
-                  )}
-                </div>
-                <button className="primary-button">Add user</button>
-              </form>
-
-              <div className="user-table">
-                {profiles.map((item) => (
-                  <EditableUserRow
-                    key={item.id}
-                    user={item}
-                    saving={savingUserId === item.id}
-                    onSave={handleSaveUser}
-                    onDelete={handleDeleteUser}
-                  />
-                ))}
-              </div>
-            </article>
-
-            <article className="panel">
-              <div className="panel-header">
-                <div>
-                  <p className="section-label">Admin</p>
-                  <h2>Lessons</h2>
-                </div>
-              </div>
-
-              <div className="button-row wrap">
+              <div className="tab-row">
                 <button
                   type="button"
-                  className={adminLessonView === 'calendar' ? 'primary-button' : 'ghost-button'}
-                  onClick={() => setAdminLessonView('calendar')}
+                  className={adminTab === 'users' ? 'tab-button tab-button-active' : 'tab-button'}
+                  onClick={() => setAdminTab('users')}
                 >
-                  Calendar view
+                  Users
                 </button>
                 <button
                   type="button"
-                  className={adminLessonView === 'form' ? 'primary-button' : 'ghost-button'}
-                  onClick={() => setAdminLessonView('form')}
+                  className={adminTab === 'calendar' ? 'tab-button tab-button-active' : 'tab-button'}
+                  onClick={() => setAdminTab('calendar')}
                 >
-                  Quick form
+                  Calendar
                 </button>
               </div>
+            </div>
 
-              {adminLessonView === 'calendar' ? (
+            {adminTab === 'users' ? (
+              <>
+                <form className="form-card" onSubmit={handleCreateUser}>
+                  <div className="form-grid">
+                    <input
+                      required
+                      placeholder="Full name"
+                      value={userForm.full_name}
+                      onChange={(event) => setUserForm({ ...userForm, full_name: event.target.value })}
+                    />
+                    <input
+                      required
+                      type="email"
+                      placeholder="Email"
+                      value={userForm.email}
+                      onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
+                    />
+                    <input
+                      required
+                      type="password"
+                      placeholder="Password"
+                      value={userForm.password}
+                      onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
+                    />
+                    <select
+                      value={userForm.role}
+                      onChange={(event) =>
+                        setUserForm({
+                          ...userForm,
+                          role: event.target.value as UserRole,
+                          class_name: event.target.value === 'student' ? userForm.class_name : '',
+                          speciality: event.target.value !== 'student' ? userForm.speciality : '',
+                        })
+                      }
+                    >
+                      <option value="student">Student</option>
+                      <option value="teacher">Teacher</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    {userForm.role === 'student' ? (
+                      <input
+                        required
+                        placeholder="Class"
+                        value={userForm.class_name}
+                        onChange={(event) => setUserForm({ ...userForm, class_name: event.target.value })}
+                      />
+                    ) : (
+                      <input
+                        required
+                        placeholder={userForm.role === 'teacher' ? 'Speciality' : 'Admin label'}
+                        value={userForm.speciality}
+                        onChange={(event) => setUserForm({ ...userForm, speciality: event.target.value })}
+                      />
+                    )}
+                  </div>
+                  <button className="primary-button">Add user</button>
+                </form>
+
+                <div className="user-table">
+                  {profiles.map((item) => (
+                    <EditableUserRow
+                      key={item.id}
+                      user={item}
+                      saving={savingUserId === item.id}
+                      deleting={deletingUserId === item.id}
+                      onSave={handleSaveUser}
+                      onDelete={handleDeleteUser}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
                 <AdminCalendar
                   lessons={lessons}
                   profilesById={profilesById}
@@ -1090,94 +1041,35 @@ function App() {
                   onCreateStudentLogin={createStudentLoginFromCalendar}
                   onCreateTeacherLogin={createTeacherLoginFromCalendar}
                 />
-              ) : (
-                <form className="form-card" onSubmit={handleCreateLesson}>
-                  <input
-                    required
-                    placeholder="Subject"
-                    value={lessonForm.subject}
-                    onChange={(event) => setLessonForm({ ...lessonForm, subject: event.target.value })}
-                  />
-                  <div className="form-grid">
-                    <select
-                      value={lessonForm.student_id}
-                      onChange={(event) => {
-                        const studentId = event.target.value
-                        setLessonForm({
-                          ...lessonForm,
-                          student_id: studentId,
-                          class_name: profilesById[studentId]?.class_name ?? '',
-                        })
-                      }}
-                    >
-                      {students.map((student) => (
-                        <option key={student.id} value={student.id}>
-                          {student.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={lessonForm.teacher_id}
-                      onChange={(event) => setLessonForm({ ...lessonForm, teacher_id: event.target.value })}
-                    >
-                      {teachers.map((teacher) => (
-                        <option key={teacher.id} value={teacher.id}>
-                          {teacher.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      required
-                      placeholder="Class"
-                      value={lessonForm.class_name}
-                      onChange={(event) => setLessonForm({ ...lessonForm, class_name: event.target.value })}
-                    />
-                    <input
-                      required
-                      type="datetime-local"
-                      value={lessonForm.starts_at}
-                      onChange={(event) => setLessonForm({ ...lessonForm, starts_at: event.target.value })}
-                    />
-                    <input
-                      required
-                      type="number"
-                      min={15}
-                      step={5}
-                      value={lessonForm.duration_minutes}
-                      onChange={(event) => setLessonForm({ ...lessonForm, duration_minutes: Number(event.target.value) })}
-                    />
-                  </div>
-                  <button className="primary-button">Create lesson</button>
-                </form>
-              )}
 
-              <div className="list-stack">
-                <h3>Tracked outcomes</h3>
-                {trackedLessons.map((lesson) => (
-                  <div key={lesson.id} className={lessonCardClass(lesson.id)}>
-                    <div>
-                      <h3>{lesson.subject}</h3>
-                      <p className="muted">
-                        {profilesById[lesson.student_id]?.full_name} with {profilesById[lesson.teacher_id]?.full_name}
-                      </p>
-                      <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                <div className="list-stack">
+                  <h3>Tracked outcomes</h3>
+                  {trackedLessons.map((lesson) => (
+                    <div key={lesson.id} className={lessonCardClass(lesson.id)}>
+                      <div>
+                        <h3>{lesson.subject}</h3>
+                        <p className="muted">
+                          {profilesById[lesson.student_id]?.full_name} with {profilesById[lesson.teacher_id]?.full_name}
+                        </p>
+                        <p className="muted">{formatShortDate(lesson.starts_at)}</p>
+                      </div>
+                      <div className="status-stack">
+                        <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
+                        <span className={badgeClass(lesson.student_attendance ? `student ${lesson.student_attendance}` : 'pending')}>
+                          Student 4h: {lesson.student_attendance ?? 'pending'}
+                        </span>
+                        <span className={badgeClass(lesson.student_lesson_status ? `student ${lesson.student_lesson_status}` : 'pending')}>
+                          Student at start: {lesson.student_lesson_status ?? 'pending'}
+                        </span>
+                        <span className={badgeClass(lesson.teacher_lesson_status ?? 'pending')}>
+                          Teacher at start: {lesson.teacher_lesson_status ?? 'pending'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="status-stack">
-                      <span className={badgeClass(statusLabel(lesson))}>{statusLabel(lesson)}</span>
-                      <span className={badgeClass(lesson.student_attendance ? `student ${lesson.student_attendance}` : 'pending')}>
-                        Student 4h: {lesson.student_attendance ?? 'pending'}
-                      </span>
-                      <span className={badgeClass(lesson.student_lesson_status ? `student ${lesson.student_lesson_status}` : 'pending')}>
-                        Student at start: {lesson.student_lesson_status ?? 'pending'}
-                      </span>
-                      <span className={badgeClass(lesson.teacher_lesson_status ?? 'pending')}>
-                        Teacher at start: {lesson.teacher_lesson_status ?? 'pending'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </article>
+                  ))}
+                </div>
+              </>
+            )}
           </section>
         )}
 
@@ -1406,11 +1298,13 @@ function EditableUserRow({
   onSave,
   onDelete,
   saving,
+  deleting,
 }: {
   user: Profile
   onSave: (user: Profile & { password?: string }) => Promise<void>
   onDelete: (userId: string) => Promise<void>
   saving: boolean
+  deleting: boolean
 }) {
   const [draft, setDraft] = useState<Profile & { password?: string }>(user)
 
@@ -1438,11 +1332,11 @@ function EditableUserRow({
         <input value={draft.speciality} onChange={(event) => setDraft({ ...draft, speciality: event.target.value })} />
       )}
       <div className="button-stack">
-        <button className="secondary-button" disabled={saving} onClick={() => void onSave(draft)}>
+        <button className="secondary-button" disabled={saving || deleting} onClick={() => void onSave(draft)}>
           {saving ? 'Saving...' : 'Save'}
         </button>
-        <button className="danger-button" disabled={saving} onClick={() => void onDelete(user.id)}>
-          Delete
+        <button className="danger-button" disabled={saving || deleting} onClick={() => void onDelete(user.id)}>
+          {deleting ? 'Deleting...' : 'Delete'}
         </button>
       </div>
     </div>

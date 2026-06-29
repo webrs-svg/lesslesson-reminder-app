@@ -175,6 +175,26 @@ h3 {
   gap: 10px;
 }
 
+.tab-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tab-button {
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(30, 41, 59, 0.96);
+  color: #dbeafe;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.tab-button-active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(96, 165, 250, 0.45);
+  color: #eff6ff;
+}
+
 .button-row.wrap,
 .button-stack {
   flex-wrap: wrap;

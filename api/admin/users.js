@@ -110,6 +110,10 @@ const updateUser = async (supabaseAdmin, payload) => {
 }
 
 const deleteUser = async (supabaseAdmin, payload) => {
+  if (!payload?.id) {
+    throw new Error('Missing user id.')
+  }
+
   const { count, error: lessonError } = await supabaseAdmin
     .from('lessons')
     .select('id', { head: true, count: 'exact' })
@@ -134,6 +138,12 @@ const deleteUser = async (supabaseAdmin, payload) => {
     if (deleteLessonsError) {
       throw new Error(deleteLessonsError.message)
     }
+  }
+
+  // Ensure the profile row is removed (and lessons cascade from it) even if auth deletion does not cascade as expected.
+  const { error: profileDeleteError } = await supabaseAdmin.from('profiles').delete().eq('id', payload.id)
+  if (profileDeleteError) {
+    throw new Error(profileDeleteError.message)
   }
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(payload.id)
